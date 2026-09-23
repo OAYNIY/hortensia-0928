@@ -38,7 +38,16 @@
     transition: border-color 0.35s ease, opacity 0.35s ease;
   }
   input:focus { border-bottom-color: rgba(233,229,221,0.85); }
+  .confirm {
+    margin-top: 34px; min-width: 190px; padding: 14px 34px;
+    border: 1px solid rgba(233,229,221,0.38); border-radius: 999px;
+    background: rgba(233,229,221,0.08); color: #f4f0e8;
+    font: inherit; font-size: 22px; letter-spacing: .16em;
+    cursor: pointer; transition: background .25s ease, border-color .25s ease, opacity .25s ease;
+  }
+  .confirm:active { background: rgba(233,229,221,0.18); }
   .wrap.busy input { opacity: 0.35; }
+  .wrap.busy .confirm { opacity: .35; pointer-events: none; }
   .err { margin-top: 30px; min-height: 30px; font-size: 22px; letter-spacing: 0.12em; color: #c98b7f; }
 </style>
 </head>
@@ -47,6 +56,7 @@
   <div class="wrap" id="wrap">
     <div class="hint">请输入你的名字</div>
     <input id="code" type="text" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="24">
+    <button class="confirm" id="confirm" type="button">确认</button>
     <div class="err" id="err"></div>
   </div>
 </div>
@@ -55,6 +65,7 @@
   var wrap = document.getElementById('wrap');
   var input = document.getElementById('code');
   var errEl = document.getElementById('err');
+  var confirmBtn = document.getElementById('confirm');
   var stage = document.getElementById('stage');
 
   // 与画册完全一致的缩放逻辑
@@ -126,6 +137,7 @@
   }
 
   input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); unlock(input.value, false); } });
+  confirmBtn.addEventListener('click', function () { unlock(input.value, false); });
   document.addEventListener('click', function (e) { if (e.target !== input) input.focus(); });
 
   var saved = null;
