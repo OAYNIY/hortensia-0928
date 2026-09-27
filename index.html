@@ -26,6 +26,16 @@
     position: absolute; left: 0; right: 0; top: 44%;
     display: flex; flex-direction: column; align-items: center;
   }
+  .wrap[hidden], .countdown[hidden] { display: none; }
+  .countdown {
+    position: absolute; left: 24px; right: 24px; top: 42%;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center;
+  }
+  .opening-time { font-size: 30px; color: #e9e5dd; }
+  .timer { display: grid; grid-template-columns: repeat(4, 120px); gap: 18px; margin-top: 52px; }
+  .time-value { display: block; font-size: 64px; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .time-label { display: block; margin-top: 14px; font-size: 20px; color: rgba(233,229,221,0.58); }
   .hint { font-size: 30px; letter-spacing: 0.24em; color: rgba(233,229,221,0.66); text-indent: 0.24em; }
   input {
     margin-top: 56px; width: 560px;
@@ -53,7 +63,16 @@
 </head>
 <body>
 <div id="stage">
-  <div class="wrap" id="wrap">
+  <div class="countdown" id="countdown">
+    <div class="opening-time">彩蛋开启时间：2026/9/28 23:59</div>
+    <div class="timer" role="timer" aria-label="距离彩蛋开启的倒计时">
+      <div><span class="time-value" id="days">00</span><span class="time-label">天</span></div>
+      <div><span class="time-value" id="hours">00</span><span class="time-label">时</span></div>
+      <div><span class="time-value" id="minutes">00</span><span class="time-label">分</span></div>
+      <div><span class="time-value" id="seconds">00</span><span class="time-label">秒</span></div>
+    </div>
+  </div>
+  <div class="wrap" id="wrap" hidden>
     <div class="hint">请输入你的名字</div>
     <input id="code" type="text" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="24">
     <button class="confirm" id="confirm" type="button">确认</button>
@@ -67,6 +86,9 @@
   var errEl = document.getElementById('err');
   var confirmBtn = document.getElementById('confirm');
   var stage = document.getElementById('stage');
+  var countdown = document.getElementById('countdown');
+  var opensAt = Date.parse('2026-09-28T23:59:00+08:00');
+  var gateOpen = false;
 
   // 与画册完全一致的缩放逻辑
   function resize() {
@@ -77,6 +99,31 @@
   }
   window.addEventListener('resize', resize);
   resize();
+
+  function showUnlock() {
+    if (gateOpen) return;
+    gateOpen = true;
+    clearInterval(countdownInterval);
+    countdown.hidden = true;
+    wrap.hidden = false;
+    var saved = null;
+    try { saved = localStorage.getItem(STORE_KEY); } catch (e) {}
+    if (saved) unlock(saved, true);
+    else setTimeout(function () { input.focus(); }, 260);
+  }
+  function updateCountdown() {
+    var remaining = Math.max(0, Math.ceil((opensAt - Date.now()) / 1000));
+    if (!remaining) { showUnlock(); return; }
+    var values = [Math.floor(remaining / 86400), Math.floor(remaining / 3600) % 24,
+      Math.floor(remaining / 60) % 60, remaining % 60];
+    ['days', 'hours', 'minutes', 'seconds'].forEach(function (id, i) {
+      document.getElementById(id).textContent = String(values[i]).padStart(2, '0');
+    });
+  }
+  var countdownInterval = setInterval(updateCountdown, 1000);
+  window.addEventListener('focus', updateCountdown);
+  document.addEventListener('visibilitychange', updateCountdown);
+  updateCountdown();
 
   function norm(s) { return String(s).normalize('NFKC').replace(/\s+/g, ''); }   // 全角/半角、空格都统一
   function hexToBuf(h) {
@@ -112,6 +159,7 @@
   }
   var trying = false;
   async function unlock(code, silent) {
+    if (!gateOpen) return;
     code = norm(code);
     if (!code || trying) return;
     trying = true;
@@ -138,11 +186,7 @@
 
   input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); unlock(input.value, false); } });
   confirmBtn.addEventListener('click', function () { unlock(input.value, false); });
-  document.addEventListener('click', function (e) { if (e.target !== input) input.focus(); });
-
-  var saved = null;
-  try { saved = localStorage.getItem(STORE_KEY); } catch (e) {}
-  if (saved) { unlock(saved, true); } else { setTimeout(function () { input.focus(); }, 260); }
+  document.addEventListener('click', function (e) { if (gateOpen && e.target !== input) input.focus(); });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
 </script>
 </body>
