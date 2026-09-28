@@ -59,6 +59,7 @@
   .wrap.busy input { opacity: 0.35; }
   .wrap.busy .confirm { opacity: .35; pointer-events: none; }
   .err { margin-top: 30px; min-height: 30px; font-size: 22px; letter-spacing: 0.12em; color: #c98b7f; }
+  .wrap.busy .err { color: rgba(233,229,221,0.66); }
 </style>
 </head>
 <body>
@@ -108,7 +109,10 @@
     wrap.hidden = false;
     var saved = null;
     try { saved = localStorage.getItem(STORE_KEY); } catch (e) {}
-    if (saved) unlock(saved, true);
+    if (saved) {
+      errEl.textContent = '正在打开画册……';
+      unlock(saved, true);
+    }
     else setTimeout(function () { input.focus(); }, 260);
   }
   function updateCountdown() {
@@ -131,6 +135,13 @@
     for (var i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16);
     return a;
   }
+  function withTimeout(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { reject(new Error('操作超时')); }, ms);
+      Promise.resolve(promise).then(function (value) { clearTimeout(timer); resolve(value); },
+        function (error) { clearTimeout(timer); reject(error); });
+    });
+  }
   async function deriveKey(code) {
     var base = await crypto.subtle.importKey('raw', new TextEncoder().encode(code), 'PBKDF2', false, ['deriveKey']);
     return crypto.subtle.deriveKey(
@@ -138,39 +149,54 @@
       base, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
   }
   async function decryptJson(path, key) {
-    var r = await fetch(path, { cache: 'no-store' });
-    if (!r.ok) throw new Error('缺少 ' + path);
-    var buf = await r.arrayBuffer();
-    var plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12));
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, 15000);
+    try {
+      var r = await fetch(path, { cache: 'no-store', signal: controller.signal });
+      if (!r.ok) throw new Error('缺少 ' + path);
+      var buf = await r.arrayBuffer();
+    } finally {
+      clearTimeout(timer);
+    }
+    try {
+      var plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12));
+    } catch (e) {
+      var invalid = new Error('名字不对');
+      invalid.code = 'INVALID_CODE';
+      throw invalid;
+    }
     return JSON.parse(new TextDecoder().decode(plain));
   }
   async function handKeyToSW(key, map) {
-    var reg = await navigator.serviceWorker.register('sw.js');
-    await navigator.serviceWorker.ready;
+    var reg = await withTimeout(navigator.serviceWorker.register('sw.js'), 12000);
+    await withTimeout(navigator.serviceWorker.ready, 12000);
     var raw = await crypto.subtle.exportKey('raw', key);
     var target = reg.active || navigator.serviceWorker.controller;
     if (!target) throw new Error('解密层未就绪');
-    await new Promise(function (res) {
+    await new Promise(function (res, reject) {
       var ch = new MessageChannel();
-      ch.port1.onmessage = function () { res(); };
+      var timer = setTimeout(function () { ch.port1.close(); reject(new Error('解密层响应超时')); }, 5000);
+      ch.port1.onmessage = function () { clearTimeout(timer); ch.port1.close(); res(); };
       target.postMessage({ type: 'unlock', raw: raw, map: map }, [ch.port2]);
-      setTimeout(res, 1200);
     });
   }
   var trying = false;
   async function unlock(code, silent) {
     if (!gateOpen) return;
     code = norm(code);
-    if (!code || trying) return;
+    if (trying) return;
+    if (!code) { errEl.textContent = '请输入名字'; input.focus(); return; }
     trying = true;
     wrap.classList.add('busy');
-    if (!silent) errEl.textContent = '';
+    input.disabled = true;
+    errEl.textContent = silent ? '正在打开画册……' : '正在确认……';
     try {
-      var key = await deriveKey(code);
+      var key = await withTimeout(deriveKey(code), 20000);
       var map = await decryptJson('site/map.enc', key);      // 暗号不对会在这里失败
       await handKeyToSW(key, map);
       try { localStorage.setItem(STORE_KEY, code); } catch (e) {}
-      if (!navigator.serviceWorker.controller && !sessionStorage.getItem('rl')) {
+      if (!navigator.serviceWorker.controller) {
+        if (sessionStorage.getItem('rl')) throw new Error('解密层未接管页面');
         sessionStorage.setItem('rl', '1');                    // 先让解密层接管本页
         location.reload();
         return;
@@ -178,9 +204,14 @@
       location.replace('app.html' + location.search);
     } catch (e) {
       try { localStorage.removeItem(STORE_KEY); } catch (e2) {}
+      try { sessionStorage.removeItem('rl'); } catch (e2) {}
       wrap.classList.remove('busy');
+      input.disabled = false;
       trying = false;
-      if (!silent) { errEl.textContent = '不对哦，再试一次'; input.select(); }
+      errEl.textContent = e.code === 'INVALID_CODE' ? '不对哦，再试一次' : '打开失败，请检查网络后重试';
+      if (silent) input.value = '';
+      else input.select();
+      input.focus();
     }
   }
 
